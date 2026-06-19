@@ -344,15 +344,15 @@ func main() {
 	defHome, _ := os.UserHomeDir()
 	defCreds := filepath.Join(defHome, ".claude", ".credentials.json")
 
-	interval := flag.Duration("interval", 60*time.Second, "更新間隔 (例: 30s, 60s)。レート制限回避のため最低 10s")
+	interval := flag.Duration("interval", 3*time.Minute, "更新間隔 (例: 3m, 5m)。レート制限回避のため最低 30s")
 	credsPath := flag.String("creds", defCreds, "認証情報ファイルのパス")
 	once := flag.Bool("once", false, "一度だけ取得して終了 (バー無しの簡易出力)")
 	all := flag.Bool("all", false, "全ての枠を表示 (未指定時はセッション(5H)のみ)")
 	flag.Parse()
 
-	// レート制限を避けるため、ポーリング間隔の下限を 10 秒に固定する。
-	if *interval < 10*time.Second {
-		*interval = 10 * time.Second
+	// レート制限を避けるため、ポーリング間隔の下限を 30 秒に固定する。
+	if *interval < 30*time.Second {
+		*interval = 30 * time.Second
 	}
 
 	// --once: スクリプト向けの単発出力。
