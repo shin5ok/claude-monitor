@@ -7,20 +7,26 @@
 //
 //	GET https://api.anthropic.com/api/oauth/usage
 //
-// 認証は ~/.claude/.credentials.json の OAuth アクセストークンを利用する。
-// トークンは毎回ファイルから読み直すため、Claude Code がリフレッシュすれば追従する。
+// 認証は Claude Code の OAuth アクセストークンを利用する。macOS では Keychain
+// (サービス名 "Claude Code-credentials") を優先し、無ければ ~/.claude/.credentials.json
+// にフォールバックする。トークンは毎回読み直すため、Claude Code が
+// リフレッシュすれば追従する。
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -38,19 +44,62 @@ type credentials struct {
 	} `json:"claudeAiOauth"`
 }
 
-func loadToken(path string) (credentials, error) {
-	var c credentials
+// keychainService は macOS Keychain に保存される Claude Code の項目名。
+const keychainService = "Claude Code-credentials"
+
+// readFromKeychain は macOS Keychain から認証情報 JSON を取り出す。
+// security コマンド経由で読むため CGo 依存はなし。darwin 以外では使えない。
+func readFromKeychain() ([]byte, error) {
+	if runtime.GOOS != "darwin" {
+		return nil, fmt.Errorf("Keychain は macOS のみサポート")
+	}
+	out, err := exec.Command("security", "find-generic-password",
+		"-s", keychainService, "-w").Output()
+	if err != nil {
+		return nil, fmt.Errorf("Keychain 読み込み失敗 (%s): %w", keychainService, err)
+	}
+	return bytes.TrimSpace(out), nil
+}
+
+// readFromFile は ~/.claude/.credentials.json などのファイルから JSON を読む。
+func readFromFile(path string) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return c, fmt.Errorf("認証情報を読めません (%s): %w", path, err)
+		return nil, fmt.Errorf("ファイル読み込み失敗 (%s): %w", path, err)
 	}
-	if err := json.Unmarshal(b, &c); err != nil {
+	return b, nil
+}
+
+// parseCredentials は credentials JSON を構造体に展開し、最低限の妥当性を確認する。
+func parseCredentials(data []byte) (credentials, error) {
+	var c credentials
+	if err := json.Unmarshal(data, &c); err != nil {
 		return c, fmt.Errorf("認証情報の JSON 解析に失敗: %w", err)
 	}
 	if c.ClaudeAiOauth.AccessToken == "" {
 		return c, fmt.Errorf("accessToken が空です。Claude Code でログインしてください")
 	}
 	return c, nil
+}
+
+// loadToken は Claude Code の認証情報を取得する。
+// macOS では Keychain を優先し、失敗時はファイルにフォールバックする。
+// その他の OS ではファイルのみを参照する。
+func loadToken(path string) (credentials, error) {
+	var errs []error
+	if runtime.GOOS == "darwin" {
+		if data, err := readFromKeychain(); err == nil {
+			return parseCredentials(data)
+		} else {
+			errs = append(errs, err)
+		}
+	}
+	data, err := readFromFile(path)
+	if err != nil {
+		errs = append(errs, err)
+		return credentials{}, fmt.Errorf("認証情報を読めません。Claude Code を起動してログインしてください: %w", errors.Join(errs...))
+	}
+	return parseCredentials(data)
 }
 
 // ---- API レスポンス ----

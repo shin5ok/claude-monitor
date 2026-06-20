@@ -3,7 +3,11 @@
     "allow": [
       "Read(//home/kawanos/.claude/**)",
       "Bash(go version *)",
-      "mcp__plugin_context7_context7__resolve-library-id"
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "Bash(go build *)",
+      "Bash(echo \"exit: $?\")",
+      "Read(//Users/shin5ok/.claude/**)",
+      "Bash(security find-generic-password *)"
     ]
   }
 }
